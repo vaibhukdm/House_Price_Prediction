@@ -1,0 +1,90 @@
+# Import necessary libraries
+import pandas as pd
+import numpy as np
+from sklearn.preprocessing import LabelEncoder
+from sklearn.impute import SimpleImputer
+from sklearn.preprocessing import StandardScaler
+from google.colab import drive
+
+# Mount Google Drive
+drive.mount('/content/drive')
+
+# Set the path to your dataset
+train_path = '/content/train.csv'
+test_path = '/content/test.csv'
+
+# Load datasets
+train = pd.read_csv(train_path)
+test = pd.read_csv(test_path)
+
+# Check if 'Id' column exists before dropping it
+if 'Id' in train.columns:
+    train_ID = train['Id']
+    train.drop('Id', axis=1, inplace=True)
+else:
+    print("The 'Id' column is not found in the training dataset.")
+
+if 'Id' in test.columns:
+    test_ID = test['Id']
+    test.drop('Id', axis=1, inplace=True)
+else:
+    print("The 'Id' column is not found in the test dataset.")
+
+# Handle missing data
+# Dropping columns with too many missing values
+missing_threshold = 0.2
+missing_data = train.isnull().sum() / len(train)
+drop_columns = missing_data[missing_data > missing_threshold].index
+train.drop(drop_columns, axis=1, inplace=True)
+test.drop(drop_columns, axis=1, inplace=True)
+
+# Fill remaining missing values with appropriate strategies
+# Numeric columns - fill with median
+num_cols = train.select_dtypes(include=[np.number]).columns
+num_cols = num_cols.drop('SalePrice', errors='ignore')  # Exclude the target variable if present
+imputer = SimpleImputer(strategy='median')
+train[num_cols] = imputer.fit_transform(train[num_cols])
+test[num_cols] = imputer.transform(test[num_cols])
+
+
+# Categorical columns - fill with mode
+cat_cols = train.select_dtypes(include=[object]).columns
+imputer = SimpleImputer(strategy='most_frequent')
+train[cat_cols] = imputer.fit_transform(train[cat_cols])
+test[cat_cols] = imputer.transform(test[cat_cols])
+
+# Feature Engineering
+# Log transformation of the target variable
+train["SalePrice"] = np.log1p(train["SalePrice"])
+
+# Combine train and test datasets for feature engineering, exclude target variable from train
+all_data = pd.concat([train.drop(['SalePrice'], axis=1), test], axis=0, sort=False)
+
+# Encode categorical features using LabelEncoder
+for col in cat_cols:
+    lbl = LabelEncoder()
+    all_data[col] = lbl.fit_transform(all_data[col].astype(str))
+
+# Add new features
+# Total square footage
+all_data['TotalSF'] = all_data['TotalBsmtSF'] + all_data['1stFlrSF'] + all_data['2ndFlrSF']
+
+# Re-split the combined dataset back into train and test sets
+train_processed = all_data[:train.shape[0]]
+test_processed = all_data[train.shape[0]:]
+
+# Add SalePrice back to train set
+train_processed['SalePrice'] = train['SalePrice']
+
+# Feature Scaling
+scaler = StandardScaler()
+train_processed[num_cols] = scaler.fit_transform(train_processed[num_cols])
+test_processed[num_cols] = scaler.transform(test_processed[num_cols])
+
+# Save preprocessed datasets to Google Drive
+train_processed.to_csv('/content/train.csv_preprocessed.csv', index=False)
+test_processed.to_csv('/content/test.csv_preprocessed.csv', index=False)
+
+# Print shapes to verify
+print(f"Train dataset shape: {train_processed.shape}")
+print(f"Test dataset shape: {test_processed.shape}")
